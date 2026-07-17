@@ -1,0 +1,42 @@
+/**
+ * Prisma seed — placeholder for the current schema.
+ *
+ * The previous seed targeted an earlier (neobank) schema and was archived to
+ * prisma/_legacy_seed.ts.bak during the foundation rebuild. The new accounting
+ * schema is provisioned per-tenant at runtime by the auth `register` flow
+ * (tenant + settings + default roles + permission catalog + owner user).
+ *
+ * A dedicated integration-phase seed (demo tenant, chart of accounts, sample
+ * customers/invoices) can be added here later. For now this is a safe no-op so
+ * `npm run db:seed` / `prisma db seed` succeed.
+ */
+import { PrismaClient } from '@prisma/client';
+import { PERMISSIONS } from '../src/config/constants';
+
+const prisma = new PrismaClient();
+
+async function main(): Promise<void> {
+  // Ensure the global permission catalog exists (idempotent). Tenant roles and
+  // users are created by the auth register flow, not here.
+  await prisma.permission.createMany({
+    data: PERMISSIONS.map((p) => ({
+      key: p.key,
+      resource: p.resource,
+      action: p.action,
+      description: p.description,
+    })),
+    skipDuplicates: true,
+  });
+  // eslint-disable-next-line no-console
+  console.log(`Seed complete: ${PERMISSIONS.length} permissions ensured.`);
+}
+
+main()
+  .catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error(err);
+    process.exit(1);
+  })
+  .finally(() => {
+    void prisma.$disconnect();
+  });

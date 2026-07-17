@@ -1,0 +1,909 @@
+// ──────────────────────────────────────────────────────────────────────────
+//  FinTech — Prisma schema (C2 stack: React + Node)
+//  Self-contained on SQLite. Swap `provider`/`DATABASE_URL` to Postgres for prod.
+//  Money is stored as Float (demo). Enum-like fields use String; lists use Json.
+// ──────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ── Multi-tenancy & identity ───────────────────────────────────────────────
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      String   @default("growth") // free | growth | scale | enterprise
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users    User[]
+  accounts Account[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  tenantId  String
+  email     String   @unique
+  password  String // bcrypt hash
+  firstName String
+  lastName  String
+  phone     String?
+  role      String   @default("member") // owner | admin | finance_manager | accountant | analyst | member | super_admin
+  isActive  Boolean  @default(true)
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant        @relation(fields: [tenantId], references: [id])
+  profile  UserProfile?
+  sessions UserSession[]
+  mfa      MfaConfig?
+
+  @@index([tenantId])
+}
+
+model UserProfile {
+  userId       String  @id
+  dob          String  @default("")
+  gender       String  @default("")
+  bio          String  @default("")
+  company      String  @default("")
+  jobTitle     String  @default("")
+  department   String  @default("")
+  team         String  @default("")
+  linkedin     String  @default("")
+  website      String  @default("")
+  github       String  @default("")
+  address1     String  @default("")
+  city         String  @default("")
+  state        String  @default("")
+  pincode      String  @default("")
+  country      String  @default("India")
+  language     String  @default("en")
+  timezone     String  @default("Asia/Kolkata")
+  currency     String  @default("INR")
+  dateFormat   String  @default("DD/MM/YYYY")
+  notifyEmail  Boolean @default(true)
+  notifySms    Boolean @default(false)
+  notifyPush   Boolean @default(true)
+  notifyDigest String  @default("weekly")
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserSession {
+  id        String   @id @default(cuid())
+  userId    String
+  ipAddress String?
+  userAgent String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model MfaConfig {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  method        String   @default("none") // none | totp | sms | email
+  isEnabled     Boolean  @default(false)
+  secret        String? // TOTP secret (demo)
+  backupCodes   String   @default("[]") // JSON-encoded string[] (SQLite has no Json type)
+  lastUsedAt    DateTime?
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ── Accounts, transactions, transfers ──────────────────────────────────────
+
+model Account {
+  id            String   @id @default(cuid())
+  tenantId      String
+  userId        String
+  name          String?
+  accountType   String   @default("current") // current | savings | escrow | nodal | wallet
+  bankName      String?
+  accountNumber String?
+  ifscCode      String?
+  balance       Float    @default(0)
+  lockedBalance Float    @default(0)
+  currency      String   @default("INR")
+  status        String   @default("active") // active | frozen | closed
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  transactions Transaction[]
+  loans        Loan[]
+
+  @@index([tenantId])
+}
+
+model Transaction {
+  id              String   @id @default(cuid())
+  tenantId        String
+  accountId       String
+  fromAccountId   String?
+  toAccountId     String?
+  amount          Float
+  transactionType String // credit | debit | transfer | fee | interest | refund
+  status          String   @default("completed") // pending | completed | failed | reversed
+  description     String?
+  referenceNo     String?
+  gatewayTxnId    String?
+  idempotencyKey  String   @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([tenantId])
+}
+
+model Transfer {
+  id          String   @id @default(cuid())
+  tenantId    String
+  fromAccount String
+  toAccount   String
+  amount      Float
+  description String   @default("")
+  status      String   @default("completed") // pending | completed | failed
+  reference   String   @unique
+  date        DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+model Payment {
+  id            String   @id @default(cuid())
+  tenantId      String
+  gateway       String // razorpay | payu | stripe | cashfree
+  gatewayOrderId String?
+  amount        Float
+  currency      String   @default("INR")
+  status        String   @default("created") // created | authorized | captured | failed | refunded
+  payer         String?
+  description   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  refunds Refund[]
+
+  @@index([tenantId])
+}
+
+// ── Expenses ───────────────────────────────────────────────────────────────
+
+model Expense {
+  id           String   @id @default(cuid())
+  tenantId     String
+  userId       String
+  employeeName String?
+  category     String // travel | meals | software | office | marketing | utilities | other
+  amount       Float
+  currency     String   @default("INR")
+  description  String?
+  receiptUrl   String?
+  status       String   @default("pending") // pending | approved | rejected | reimbursed
+  approvedBy   String?
+  approvedAt   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+// ── Loans & EMI ────────────────────────────────────────────────────────────
+
+model Loan {
+  id           String   @id @default(cuid())
+  tenantId     String
+  accountId    String
+  borrower     String?
+  loanType     String   @default("personal") // personal | business | mortgage | auto | working_capital
+  principal    Float
+  interestRate Float
+  tenureMonths Int
+  emiAmount    Float
+  status       String   @default("active") // pending | active | closed | defaulted
+  disbursedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  account     Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  emiSchedule EmiSchedule[]
+
+  @@index([tenantId])
+}
+
+model EmiSchedule {
+  id          String   @id @default(cuid())
+  loanId      String
+  installment Int
+  dueDate     DateTime
+  principal   Float
+  interest    Float
+  emiAmount   Float
+  status      String   @default("pending") // pending | paid | overdue
+  paidAt      DateTime?
+
+  loan Loan @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@index([loanId])
+}
+
+// ── Credit scoring ─────────────────────────────────────────────────────────
+
+model CreditProfile {
+  id              String   @id @default(cuid())
+  tenantId        String
+  userId          String
+  userName        String?
+  userEmail       String?
+  creditScore     Int
+  scoreModel      String   @default("CIBIL")
+  totalDebt       Float    @default(0)
+  availableCredit Float    @default(0)
+  utilizationPct  Float    @default(0)
+  onTimePayments  Int      @default(0)
+  latePayments    Int      @default(0)
+  defaults        Int      @default(0)
+  riskCategory    String   @default("low") // low | medium | high | very_high
+  lastUpdated     DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+// ── KYC ────────────────────────────────────────────────────────────────────
+
+model KycProfile {
+  id              String   @id @default(cuid())
+  tenantId        String
+  userId          String
+  userName        String?
+  panNumber       String?
+  aadhaarNumber   String?
+  panVerified     Boolean  @default(false)
+  aadhaarVerified Boolean  @default(false)
+  faceMatchScore  Float?
+  riskLevel       String   @default("low") // low | medium | high
+  status          String   @default("pending") // pending | verified | rejected | review
+  rejectionReason String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  documents KycDocument[]
+
+  @@index([tenantId])
+}
+
+model KycDocument {
+  id           String   @id @default(cuid())
+  kycProfileId String
+  docType      String // pan | aadhaar | passport | voter_id | selfie
+  fileUrl      String
+  fileName     String
+  fileSize     Int?
+  mimeType     String?
+  isVerified   Boolean  @default(false)
+  uploadedAt   DateTime @default(now())
+
+  kycProfile KycProfile @relation(fields: [kycProfileId], references: [id], onDelete: Cascade)
+
+  @@index([kycProfileId])
+}
+
+// ── Notifications ──────────────────────────────────────────────────────────
+
+model Notification {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId     String?
+  channel    String // in_app | email | sms | push
+  type       String // info | success | warning | alert | transaction
+  title      String
+  body       String
+  status     String   @default("sent") // sent | delivered | read | failed
+  readAt     DateTime?
+  sentAt     DateTime?
+  failReason String?
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+// ── Fraud detection ────────────────────────────────────────────────────────
+
+model FraudRule {
+  id           String   @id @default(cuid())
+  tenantId     String
+  name         String
+  description  String?
+  ruleType     String // velocity | amount_threshold | geo_anomaly | device | blacklist
+  action       String // flag | block | review | notify
+  severity     String   @default("medium") // low | medium | high | critical
+  isActive     Boolean  @default(true)
+  triggerCount Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  alerts FraudAlert[]
+
+  @@index([tenantId])
+}
+
+model FraudAlert {
+  id            String   @id @default(cuid())
+  tenantId      String
+  userId        String?
+  ruleId        String?
+  transactionId String?
+  alertType     String
+  severity      String   @default("medium") // low | medium | high | critical
+  description   String
+  riskScore     Float    @default(0)
+  status        String   @default("open") // open | investigating | resolved | dismissed
+  resolvedBy    String?
+  resolvedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  rule FraudRule? @relation(fields: [ruleId], references: [id])
+
+  @@index([tenantId])
+}
+
+// ── Audit log ──────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId     String?
+  action     String // create | update | delete | login | approve | reject | export
+  resource   String
+  resourceId String?
+  oldValues  String?
+  newValues  String?
+  ipAddress  String?
+  userAgent  String?
+  status     String   @default("success") // success | failure
+  duration   Int?
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+// ── Workflow / approvals ───────────────────────────────────────────────────
+
+model WorkflowDefinition {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  type      String // expense_approval | loan_approval | refund_approval | kyc_review | payout
+  createdAt DateTime @default(now())
+
+  instances WorkflowInstance[]
+}
+
+model WorkflowInstance {
+  id            String   @id @default(cuid())
+  tenantId      String
+  definitionId  String
+  referenceId   String
+  referenceType String
+  currentStep   Int      @default(0)
+  totalSteps    Int      @default(1)
+  status        String   @default("pending") // pending | in_progress | approved | rejected | cancelled
+  priority      String   @default("medium") // low | medium | high | urgent
+  assignedTo    String?
+  dueAt         DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  definition WorkflowDefinition @relation(fields: [definitionId], references: [id])
+  steps      WorkflowStep[]
+
+  @@index([tenantId])
+}
+
+model WorkflowStep {
+  id         String   @id @default(cuid())
+  instanceId String
+  stepIndex  Int
+  stepName   String
+  assignedTo String?
+  status     String   @default("pending") // pending | approved | rejected | skipped
+  comment    String?
+  actionedAt DateTime?
+  actionedBy String?
+
+  instance WorkflowInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+
+  @@index([instanceId])
+}
+
+// ── Documents vault ────────────────────────────────────────────────────────
+
+model Document {
+  id          String   @id @default(cuid())
+  tenantId    String
+  userId      String?
+  name        String
+  docCategory String // contract | statement | report | kyc | tax | other
+  fileUrl     String
+  fileName    String
+  fileSize    Int?
+  mimeType    String?
+  isEncrypted Boolean  @default(false)
+  accessLevel String   @default("private") // private | team | tenant | public
+  expiresAt   DateTime?
+  uploadedBy  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+// ── Refunds ────────────────────────────────────────────────────────────────
+
+model Refund {
+  id               String   @id @default(cuid())
+  tenantId         String
+  paymentId        String
+  paymentReference String?
+  originalAmount   Float
+  refundAmount     Float
+  type             String // full | partial
+  reason           String // customer_request | duplicate_payment | product_return | fraud | other
+  notes            String?
+  status           String   @default("processing") // processing | completed | failed
+  customer         String?
+  gatewayRefundId  String
+  requestedBy      String
+  failureReason    String?
+  createdAt        DateTime @default(now())
+  completedAt      DateTime?
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+// ── Settings (per-tenant singletons) ───────────────────────────────────────
+
+model OrgSettings {
+  id                   String  @id @default(cuid())
+  tenantId             String  @unique
+  name                 String
+  logoUrl              String?
+  registeredAddress    String  @default("")
+  cin                  String  @default("")
+  gstin                String  @default("")
+  pan                  String  @default("")
+  fyStartMonth         Int     @default(4)
+  baseCurrency         String  @default("INR")
+  multiCurrencyEnabled Boolean @default(false)
+  invoicePrefix        String  @default("INV-")
+  invoiceStartNumber   Int     @default(1001)
+  defaultGstRate       Float   @default(18)
+  primaryColor         String  @default("#2667FF")
+  emailHeaderLogoUrl   String?
+  invoiceTemplate      String  @default("classic")
+}
+
+model PaymentGateway {
+  id                    String   @id @default(cuid())
+  tenantId              String
+  gatewayId             String // razorpay | payu
+  displayName           String
+  connected             Boolean  @default(false)
+  mode                  String   @default("test") // test | live
+  publicKey             String?
+  webhookSecret         String?
+  enabledMethods        String   @default("[]") // JSON-encoded string[]
+  isPrimary             Boolean  @default(false)
+  lastSuccessfulPayment DateTime?
+
+  @@unique([tenantId, gatewayId])
+}
+
+// ── Customer Management (M2) ──────────────────────────────────────────────
+
+model Customer {
+  id              String   @id @default(cuid())
+  tenantId        String
+  customerId      String   @unique
+  firstName       String
+  lastName        String
+  email           String
+  phone           String?
+  dob             String?
+  gender          String   @default("male")
+  panNumber       String?
+  aadhaarLast4    String?
+  employmentType  String   @default("salaried")
+  employerName    String?
+  annualIncome    Float?
+  address1        String?
+  city            String?
+  state           String?
+  pincode         String?
+  country         String   @default("India")
+  status          String   @default("active")
+  kycStatus       String   @default("pending")
+  riskCategory    String   @default("low")
+  nomineeName     String?
+  nomineeRelation String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  beneficiaries Beneficiary[]
+  creditReports CreditBureauReport[]
+  investments   Investment[]
+
+  @@index([tenantId])
+}
+
+// ── Beneficiary Management (M7) ───────────────────────────────────────────
+
+model Beneficiary {
+  id            String   @id @default(cuid())
+  tenantId      String
+  customerId    String?
+  name          String
+  nickName      String?
+  bankName      String
+  accountNumber String
+  ifscCode      String
+  accountType   String   @default("savings")
+  upiId         String?
+  phone         String?
+  relationship  String   @default("other")
+  status        String   @default("pending")
+  approvedBy    String?
+  approvedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@index([tenantId])
+}
+
+// ── Credit Bureau Integration (M12) ───────────────────────────────────────
+
+model CreditBureauReport {
+  id                 String   @id @default(cuid())
+  tenantId           String
+  customerId         String
+  bureau             String
+  reportReference    String?
+  creditScore        Int
+  paymentHistory     Float    @default(0)
+  creditUtilization  Float    @default(0)
+  accountAgeMonths   Int      @default(0)
+  recentInquiries    Int      @default(0)
+  derogatoryMarks    Int      @default(0)
+  totalAccounts      Int      @default(0)
+  openAccounts       Int      @default(0)
+  totalBalance       Float    @default(0)
+  totalLimit         Float    @default(0)
+  status             String   @default("active")
+  pulledAt           DateTime @default(now())
+  expiresAt          DateTime?
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([customerId])
+}
+
+// ── Ledger & Accounting Engine (M18) ──────────────────────────────────────
+
+model LedgerAccount {
+  id          String   @id @default(cuid())
+  tenantId    String
+  code        String
+  name        String
+  accountType String   // asset | liability | equity | revenue | expense
+  category    String   // cash | bank | receivable | payable | loan | income | expense_ctrl | equity_ctrl
+  currency    String   @default("INR")
+  balance     Float    @default(0)
+  isSystem    Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  description String?
+  createdAt   DateTime @default(now())
+
+  entries LedgerEntry[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+model LedgerJournal {
+  id            String   @id @default(cuid())
+  tenantId      String
+  journalNo     String   @unique
+  description   String
+  referenceType String?
+  referenceId   String?
+  status        String   @default("posted")
+  totalDebit    Float    @default(0)
+  totalCredit   Float    @default(0)
+  postedAt      DateTime @default(now())
+  createdBy     String?
+  reversalOf    String?
+
+  entries LedgerEntry[]
+
+  @@index([tenantId])
+}
+
+model LedgerEntry {
+  id          String   @id @default(cuid())
+  journalId   String
+  tenantId    String
+  accountId   String
+  entryType   String   // debit | credit
+  amount      Float
+  description String?
+  createdAt   DateTime @default(now())
+
+  journal LedgerJournal @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  account LedgerAccount @relation(fields: [accountId], references: [id])
+
+  @@index([journalId])
+  @@index([accountId])
+  @@index([tenantId])
+}
+
+// ── Reconciliation Module (M19) ───────────────────────────────────────────
+
+model ReconciliationBatch {
+  id          String   @id @default(cuid())
+  tenantId    String
+  batchNo     String   @unique
+  batchType   String   // bank | payment_gateway | internal
+  period      String
+  status      String   @default("pending")
+  totalItems  Int      @default(0)
+  matched     Int      @default(0)
+  unmatched   Int      @default(0)
+  exceptions  Int      @default(0)
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  items ReconciliationItem[]
+
+  @@index([tenantId])
+}
+
+model ReconciliationItem {
+  id          String   @id @default(cuid())
+  batchId     String
+  tenantId    String
+  referenceId String?
+  externalRef String?
+  itemType    String   // debit | credit
+  amount      Float
+  description String?
+  status      String   @default("unmatched")
+  matchedAt   DateTime?
+  exception   String?
+  createdAt   DateTime @default(now())
+
+  batch ReconciliationBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId])
+  @@index([tenantId])
+}
+
+// ── Treasury Management (M20) ─────────────────────────────────────────────
+
+model TreasuryAccount {
+  id            String   @id @default(cuid())
+  tenantId      String
+  name          String
+  accountType   String   // nostro | vostro | reserve | operating | investment | liquidity
+  currency      String   @default("INR")
+  balance       Float    @default(0)
+  minBalance    Float    @default(0)
+  maxBalance    Float?
+  bankName      String?
+  accountNumber String?
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  allocations TreasuryAllocation[]
+
+  @@index([tenantId])
+}
+
+model TreasuryAllocation {
+  id             String   @id @default(cuid())
+  tenantId       String
+  fromAccountId  String
+  toAccountId    String?
+  toAccountName  String?
+  amount         Float
+  allocationDate DateTime @default(now())
+  purpose        String   // liquidity | investment | reserve | payment | transfer
+  status         String   @default("completed")
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  fromAccount TreasuryAccount @relation(fields: [fromAccountId], references: [id])
+
+  @@index([tenantId])
+}
+
+// ── Card Management (M21) ─────────────────────────────────────────────────
+
+model Card {
+  id              String   @id @default(cuid())
+  tenantId        String
+  userId          String
+  accountId       String?
+  cardType        String   // virtual | physical
+  cardVariant     String   @default("debit")
+  maskedNumber    String
+  cardholderName  String
+  expiryMonth     Int
+  expiryYear      Int
+  network         String   @default("visa")
+  status          String   @default("active")
+  dailyLimit      Float    @default(100000)
+  monthlyLimit    Float    @default(500000)
+  isContactless   Boolean  @default(true)
+  isOnlineEnabled Boolean  @default(true)
+  isInternational Boolean  @default(false)
+  blockedAt       DateTime?
+  blockedReason   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  transactions CardTransaction[]
+
+  @@index([tenantId])
+}
+
+model CardTransaction {
+  id        String   @id @default(cuid())
+  cardId    String
+  tenantId  String
+  merchant  String
+  amount    Float
+  currency  String   @default("INR")
+  status    String   @default("approved")
+  txnType   String   @default("purchase")
+  mcc       String?
+  location  String?
+  createdAt DateTime @default(now())
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+  @@index([tenantId])
+}
+
+// ── AML & Sanctions (M15) ─────────────────────────────────────────────────
+
+model SanctionEntry {
+  id         String   @id @default(cuid())
+  tenantId   String
+  entityName String
+  entityType String   @default("individual")
+  listType   String   // ofac | un | eu | pep | adverse_media
+  country    String?
+  idNumber   String?
+  dob        String?
+  aliases    String   @default("[]")
+  reason     String?
+  isActive   Boolean  @default(true)
+  addedAt    DateTime @default(now())
+
+  screenings SanctionScreening[]
+
+  @@index([tenantId])
+}
+
+model SanctionScreening {
+  id            String   @id @default(cuid())
+  tenantId      String
+  sanctionId    String?
+  entityName    String
+  entityType    String   @default("customer")
+  referenceId   String?
+  referenceType String?
+  matchScore    Float    @default(0)
+  status        String   @default("pending")
+  resolvedBy    String?
+  resolvedAt    DateTime?
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  sanction SanctionEntry? @relation(fields: [sanctionId], references: [id])
+
+  @@index([tenantId])
+}
+
+// ── Investment Module (M22) ───────────────────────────────────────────────
+
+model Investment {
+  id             String   @id @default(cuid())
+  tenantId       String
+  customerId     String?
+  investmentType String   // mutual_fund | fixed_deposit | sip
+  fundName       String
+  folio          String?
+  units          Float    @default(0)
+  nav            Float    @default(0)
+  investedAmount Float
+  currentValue   Float    @default(0)
+  returnAmount   Float    @default(0)
+  returnRate     Float    @default(0)
+  interestRate   Float?
+  maturityDate   DateTime?
+  duration       Int?
+  sipAmount      Float?
+  sipFrequency   String?
+  status         String   @default("active") // active | matured | redeemed | paused | cancelled
+  startDate      DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  installments SipInstallment[]
+  customer     Customer? @relation(fields: [customerId], references: [id])
+
+  @@index([tenantId])
+  @@index([customerId])
+}
+
+model SipInstallment {
+  id            String   @id @default(cuid())
+  investmentId  String
+  installmentNo Int
+  amount        Float
+  dueDate       DateTime
+  status        String   @default("pending") // pending | paid | failed | skipped
+  paidAt        DateTime?
+  units         Float?
+  nav           Float?
+  createdAt     DateTime @default(now())
+
+  investment Investment @relation(fields: [investmentId], references: [id], onDelete: Cascade)
+
+  @@index([investmentId])
+}
+
+// ── Password reset tokens ──────────────────────────────────────────────────
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}

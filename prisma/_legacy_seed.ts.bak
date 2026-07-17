@@ -1,0 +1,916 @@
+/* eslint-disable no-console */
+import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
+import dayjs from 'dayjs';
+import { calcEmi, amortisation, round2 } from '../src/lib/finance';
+
+const prisma = new PrismaClient();
+
+/* ── tiny random helpers ──────────────────────────────────────────────── */
+const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+const amt = (min: number, max: number) => round2(randInt(min, max) + Math.random());
+const daysAgo = (n: number) => dayjs().subtract(n, 'day').toDate();
+const id = () => Math.random().toString(36).slice(2);
+
+const FIRST = ['Aarav', 'Vivaan', 'Diya', 'Ananya', 'Kabir', 'Ishaan', 'Sara', 'Myra', 'Reyansh', 'Aadhya', 'Arjun', 'Saanvi', 'Vihaan', 'Anika', 'Krishna', 'Riya', 'Dev', 'Tara', 'Aryan', 'Meera'];
+const LAST = ['Sharma', 'Patel', 'Reddy', 'Iyer', 'Nair', 'Mehta', 'Gupta', 'Singh', 'Verma', 'Rao', 'Kapoor', 'Joshi'];
+const COMPANIES = ['Lumina Retail', 'Apex Logistics', 'Verdant Foods', 'Quantum Labs', 'Northwind Traders', 'BlueOrbitMedia', 'Helios Energy', 'Marigold Textiles', 'Cobalt Systems', 'Riverstone Realty'];
+const BANKS = ['HDFC Bank', 'ICICI Bank', 'Axis Bank', 'State Bank of India', 'Kotak Mahindra', 'Yes Bank'];
+
+async function clean() {
+  // delete in FK-safe order
+  await prisma.$transaction([
+    prisma.sipInstallment.deleteMany(),
+    prisma.investment.deleteMany(),
+    prisma.cardTransaction.deleteMany(),
+    prisma.card.deleteMany(),
+    prisma.sanctionScreening.deleteMany(),
+    prisma.sanctionEntry.deleteMany(),
+    prisma.treasuryAllocation.deleteMany(),
+    prisma.treasuryAccount.deleteMany(),
+    prisma.reconciliationItem.deleteMany(),
+    prisma.reconciliationBatch.deleteMany(),
+    prisma.ledgerEntry.deleteMany(),
+    prisma.ledgerJournal.deleteMany(),
+    prisma.ledgerAccount.deleteMany(),
+    prisma.creditBureauReport.deleteMany(),
+    prisma.beneficiary.deleteMany(),
+    prisma.customer.deleteMany(),
+    prisma.refund.deleteMany(),
+    prisma.workflowStep.deleteMany(),
+    prisma.workflowInstance.deleteMany(),
+    prisma.workflowDefinition.deleteMany(),
+    prisma.fraudAlert.deleteMany(),
+    prisma.fraudRule.deleteMany(),
+    prisma.kycDocument.deleteMany(),
+    prisma.kycProfile.deleteMany(),
+    prisma.emiSchedule.deleteMany(),
+    prisma.loan.deleteMany(),
+    prisma.transaction.deleteMany(),
+    prisma.transfer.deleteMany(),
+    prisma.payment.deleteMany(),
+    prisma.expense.deleteMany(),
+    prisma.document.deleteMany(),
+    prisma.notification.deleteMany(),
+    prisma.auditLog.deleteMany(),
+    prisma.account.deleteMany(),
+    prisma.paymentGateway.deleteMany(),
+    prisma.orgSettings.deleteMany(),
+    prisma.mfaConfig.deleteMany(),
+    prisma.userSession.deleteMany(),
+    prisma.userProfile.deleteMany(),
+    prisma.passwordResetToken.deleteMany(),
+    prisma.user.deleteMany(),
+    prisma.tenant.deleteMany(),
+  ]);
+}
+
+async function main() {
+  console.log('🌱  Seeding FinTech database…');
+  await clean();
+  const hash = await bcrypt.hash('Password123!', 10);
+
+  /* ── Tenants ────────────────────────────────────────────────────────── */
+  const primary = await prisma.tenant.create({
+    data: { name: 'Northwind Financial', slug: 'northwind', plan: 'scale', isActive: true },
+  });
+  const otherTenants = await Promise.all(
+    [
+      { name: 'Lumina Retail', slug: 'lumina', plan: 'growth' },
+      { name: 'Apex Logistics', slug: 'apex', plan: 'enterprise' },
+      { name: 'Verdant Foods', slug: 'verdant', plan: 'growth' },
+      { name: 'Cobalt Systems', slug: 'cobalt', plan: 'free' },
+    ].map((t) => prisma.tenant.create({ data: { ...t, isActive: Math.random() > 0.15 } })),
+  );
+
+  /* ── Users (primary tenant) ─────────────────────────────────────────── */
+  const team: { id: string; name: string; email: string; role: string }[] = [];
+  const roster = [
+    { firstName: 'Kuldip', lastName: 'Savaliya', email: 'owner@northwind.io', role: 'owner', jobTitle: 'Founder & CEO' },
+    // ── Demo login accounts (shown on the Login page) — all use password "Password123!" ──
+    { firstName: 'Alex', lastName: 'Carter', email: 'admin@fintech.io', role: 'admin', jobTitle: 'Administrator' },
+    { firstName: 'Emma', lastName: 'Stone', email: 'partner@fintech.io', role: 'partner', jobTitle: 'Channel Partner' },
+    { firstName: 'Ryan', lastName: 'Lee', email: 'user@fintech.io', role: 'user', jobTitle: 'Team Member' },
+    { firstName: 'Priya', lastName: 'Menon', email: 'priya.admin@northwind.io', role: 'admin', jobTitle: 'Head of Operations' },
+    { firstName: 'Rahul', lastName: 'Verma', email: 'rahul.finance@northwind.io', role: 'finance_manager', jobTitle: 'Finance Manager' },
+    { firstName: 'Sneha', lastName: 'Iyer', email: 'sneha.accounts@northwind.io', role: 'accountant', jobTitle: 'Senior Accountant' },
+    { firstName: 'Amit', lastName: 'Rao', email: 'amit.risk@northwind.io', role: 'analyst', jobTitle: 'Risk Analyst' },
+  ];
+  for (const r of roster) {
+    const u = await prisma.user.create({
+      data: {
+        tenantId: primary.id, email: r.email, password: hash, firstName: r.firstName, lastName: r.lastName,
+        phone: `+91 ${randInt(70, 99)}${randInt(10000000, 99999999)}`, role: r.role, isActive: true,
+        profile: { create: { jobTitle: r.jobTitle, company: 'Northwind Financial', department: 'Finance', city: 'Bengaluru', state: 'Karnataka' } },
+      },
+    });
+    team.push({ id: u.id, name: `${u.firstName} ${u.lastName}`, email: u.email, role: u.role });
+  }
+  // extra members for richer user lists
+  for (let i = 0; i < 9; i++) {
+    const fn = pick(FIRST), ln = pick(LAST);
+    const u = await prisma.user.create({
+      data: {
+        tenantId: primary.id, email: `${fn}.${ln}.${i}@northwind.io`.toLowerCase(), password: hash,
+        firstName: fn, lastName: ln, phone: `+91 ${randInt(70, 99)}${randInt(10000000, 99999999)}`,
+        role: 'member', isActive: Math.random() > 0.1,
+      },
+    });
+    team.push({ id: u.id, name: `${fn} ${ln}`, email: u.email, role: 'member' });
+  }
+  // a couple of users in other tenants (for super-admin user list)
+  for (const t of otherTenants) {
+    for (let i = 0; i < randInt(2, 4); i++) {
+      const fn = pick(FIRST), ln = pick(LAST);
+      await prisma.user.create({
+        data: {
+          tenantId: t.id, email: `${fn}.${ln}.${t.slug}${i}@example.com`.toLowerCase(), password: hash,
+          firstName: fn, lastName: ln, role: pick(['admin', 'finance_manager', 'member']), isActive: Math.random() > 0.2,
+        },
+      });
+    }
+  }
+  const owner = team[0];
+
+  /* ── Org settings + gateways ────────────────────────────────────────── */
+  await prisma.orgSettings.create({
+    data: {
+      tenantId: primary.id, name: 'Northwind Financial', registeredAddress: '4th Floor, Prestige Tech Park, Bengaluru 560103',
+      cin: 'U65999KA2021PTC148210', gstin: '29ABCDE1234F1Z5', pan: 'ABCDE1234F', baseCurrency: 'INR',
+      invoicePrefix: 'NWF-', invoiceStartNumber: 1001, defaultGstRate: 18, primaryColor: '#2667FF',
+    },
+  });
+  await prisma.paymentGateway.createMany({
+    data: [
+      { tenantId: primary.id, gatewayId: 'razorpay', displayName: 'Razorpay', connected: true, mode: 'live', publicKey: 'rzp_live_8xQ1mK3nP9z', webhookSecret: 'whsec_rzp_29ab84jd', enabledMethods: JSON.stringify(['card', 'upi', 'netbanking', 'wallet']), isPrimary: true, lastSuccessfulPayment: daysAgo(1) },
+      { tenantId: primary.id, gatewayId: 'payu', displayName: 'PayU', connected: false, mode: 'test', enabledMethods: JSON.stringify(['card', 'upi']), isPrimary: false },
+    ],
+  });
+
+  /* ── Accounts ───────────────────────────────────────────────────────── */
+  const accountTypes = ['current', 'savings', 'escrow', 'nodal', 'wallet'];
+  const accounts: { id: string; name: string; balance: number }[] = [];
+  for (let i = 0; i < 12; i++) {
+    const type = i < 2 ? 'current' : pick(accountTypes);
+    const bank = pick(BANKS);
+    const balance = amt(50000, 4000000);
+    const a = await prisma.account.create({
+      data: {
+        tenantId: primary.id, userId: pick(team).id, name: `${type[0].toUpperCase()}${type.slice(1)} — ${bank}`,
+        accountType: type, bankName: bank, accountNumber: `${randInt(1000, 9999)}${randInt(100000, 999999)}`,
+        ifscCode: `${bank.slice(0, 4).toUpperCase()}0${randInt(100000, 999999)}`, balance, lockedBalance: round2(balance * Math.random() * 0.05),
+        currency: 'INR', status: i === 11 ? 'frozen' : 'active', createdAt: daysAgo(randInt(120, 700)),
+      },
+    });
+    accounts.push({ id: a.id, name: a.name!, balance });
+  }
+
+  /* ── Transactions (6 months, for cashflow) ──────────────────────────── */
+  const txTypes = ['credit', 'debit', 'transfer', 'fee', 'interest', 'refund'];
+  const txn: any[] = [];
+  for (let i = 0; i < 320; i++) {
+    const acc = pick(accounts);
+    const type = pick(txTypes);
+    const isIn = ['credit', 'interest', 'refund'].includes(type);
+    txn.push({
+      tenantId: primary.id, accountId: acc.id,
+      fromAccountId: isIn ? null : acc.id, toAccountId: isIn ? acc.id : null,
+      amount: amt(500, 250000), transactionType: type, status: pick(['completed', 'completed', 'completed', 'pending', 'failed']),
+      description: pick(['Vendor payout', 'Customer settlement', 'Payroll batch', 'GST payment', 'Subscription charge', 'Interest credit', 'Service fee', 'Refund processed']),
+      referenceNo: `TXN-${id().toUpperCase().slice(0, 8)}`, idempotencyKey: `seed-${i}-${id()}`,
+      createdAt: daysAgo(randInt(0, 180)),
+    });
+  }
+  await prisma.transaction.createMany({ data: txn });
+
+  /* ── Transfers ──────────────────────────────────────────────────────── */
+  const transfers: any[] = [];
+  for (let i = 0; i < 45; i++) {
+    const from = pick(accounts), to = pick(accounts.filter((a) => a.id !== from.id));
+    transfers.push({
+      tenantId: primary.id, fromAccount: from.name, toAccount: to.name, amount: amt(1000, 500000),
+      description: pick(['Inter-account sweep', 'Treasury rebalance', 'Vendor settlement', 'Reserve top-up']),
+      status: pick(['completed', 'completed', 'pending']), reference: `TRF-${id().toUpperCase().slice(0, 8)}`, date: daysAgo(randInt(0, 120)),
+    });
+  }
+  await prisma.transfer.createMany({ data: transfers });
+
+  /* ── Payments + refunds ─────────────────────────────────────────────── */
+  const payments = [];
+  for (let i = 0; i < 130; i++) {
+    const p = await prisma.payment.create({
+      data: {
+        tenantId: primary.id, gateway: pick(['razorpay', 'razorpay', 'payu']), gatewayOrderId: `order_${id().slice(0, 14)}`,
+        amount: amt(199, 180000), currency: 'INR', status: pick(['captured', 'captured', 'captured', 'authorized', 'created', 'failed']),
+        payer: `${pick(FIRST)} ${pick(LAST)}`, description: pick(['Order payment', 'Invoice settlement', 'Subscription renewal', 'Top-up']),
+        createdAt: daysAgo(randInt(0, 150)),
+      },
+    });
+    payments.push(p);
+  }
+  const captured = payments.filter((p) => p.status === 'captured');
+  for (let i = 0; i < 28; i++) {
+    const p = pick(captured);
+    const full = Math.random() > 0.5;
+    const refundAmount = full ? p.amount : round2(p.amount * (0.2 + Math.random() * 0.5));
+    await prisma.refund.create({
+      data: {
+        tenantId: primary.id, paymentId: p.id, paymentReference: p.gatewayOrderId, originalAmount: p.amount,
+        refundAmount, type: full ? 'full' : 'partial', reason: pick(['customer_request', 'duplicate_payment', 'product_return', 'fraud', 'other']),
+        notes: pick(['Customer cancelled order', 'Duplicate charge reversed', 'Goods returned', '']),
+        status: pick(['completed', 'completed', 'processing', 'failed']), customer: p.payer, gatewayRefundId: `rfnd_${id().slice(0, 12)}`,
+        requestedBy: owner.id, createdAt: daysAgo(randInt(0, 90)),
+      },
+    });
+  }
+
+  /* ── Expenses ───────────────────────────────────────────────────────── */
+  const categories = ['travel', 'meals', 'software', 'office', 'marketing', 'utilities', 'other'];
+  const expenses: any[] = [];
+  for (let i = 0; i < 90; i++) {
+    const member = pick(team);
+    const status = pick(['pending', 'approved', 'approved', 'rejected', 'reimbursed']);
+    expenses.push({
+      tenantId: primary.id, userId: member.id, employeeName: member.name, category: pick(categories), amount: amt(200, 85000),
+      description: pick(['Client visit cab', 'Team lunch', 'SaaS subscription', 'Stationery', 'Ad campaign', 'Electricity bill', 'Conference ticket']),
+      status, approvedBy: status === 'pending' ? null : owner.id, approvedAt: status === 'pending' ? null : daysAgo(randInt(0, 30)),
+      createdAt: daysAgo(randInt(0, 120)),
+    });
+  }
+  await prisma.expense.createMany({ data: expenses });
+
+  /* ── Loans + EMI schedules ──────────────────────────────────────────── */
+  const loanSpecs: Array<{ status: string; paidFraction: number }> = [
+    { status: 'applied', paidFraction: 0 },
+    { status: 'applied', paidFraction: 0 },
+    { status: 'applied', paidFraction: 0 },
+    { status: 'applied', paidFraction: 0 },
+    { status: 'applied', paidFraction: 0 },
+    { status: 'npa',     paidFraction: 0.15 },
+    { status: 'npa',     paidFraction: 0.25 },
+    { status: 'npa',     paidFraction: 0.10 },
+    { status: 'closed',  paidFraction: 1 },
+    { status: 'closed',  paidFraction: 1 },
+    { status: 'closed',  paidFraction: 1 },
+    { status: 'active',  paidFraction: 0.30 },
+    { status: 'active',  paidFraction: 0.50 },
+    { status: 'active',  paidFraction: 0.20 },
+    { status: 'active',  paidFraction: 0.60 },
+    { status: 'active',  paidFraction: 0.45 },
+    { status: 'active',  paidFraction: 0.10 },
+    { status: 'active',  paidFraction: 0.70 },
+    { status: 'active',  paidFraction: 0.35 },
+    { status: 'active',  paidFraction: 0.55 },
+    { status: 'active',  paidFraction: 0.25 },
+    { status: 'active',  paidFraction: 0.80 },
+    { status: 'active',  paidFraction: 0.15 },
+    { status: 'active',  paidFraction: 0.40 },
+    { status: 'active',  paidFraction: 0.65 },
+  ];
+  for (const spec of loanSpecs) {
+    const principal  = amt(100000, 5000000);
+    const rate       = randInt(9, 18);
+    const tenure     = pick([12, 24, 36, 48, 60]);
+    const emi        = calcEmi(principal, rate, tenure);
+    const loanType   = pick(['personal', 'business', 'working_capital', 'auto', 'mortgage']);
+    if (spec.status === 'applied') {
+      await prisma.loan.create({
+        data: {
+          tenantId: primary.id, accountId: pick(accounts).id, borrower: `${pick(FIRST)} ${pick(LAST)}`,
+          loanType, principal, interestRate: rate, tenureMonths: tenure, emiAmount: emi,
+          status: 'applied', createdAt: daysAgo(randInt(1, 30)),
+        },
+      });
+    } else {
+      const disbursedAt = daysAgo(randInt(60, 500));
+      const paidCount   = spec.status === 'closed'
+        ? tenure
+        : Math.max(1, Math.floor(tenure * spec.paidFraction));
+      const schedule    = amortisation(principal, rate, tenure);
+      await prisma.loan.create({
+        data: {
+          tenantId: primary.id, accountId: pick(accounts).id, borrower: `${pick(FIRST)} ${pick(LAST)}`,
+          loanType, principal, interestRate: rate, tenureMonths: tenure, emiAmount: emi,
+          status: spec.status, disbursedAt, createdAt: disbursedAt,
+          emiSchedule: {
+            create: schedule.map((row, idx) => ({
+              installment: row.installment,
+              dueDate: dayjs(disbursedAt).add(row.installment, 'month').toDate(),
+              principal: row.principal, interest: row.interest, emiAmount: row.emiAmount,
+              status:  idx < paidCount ? 'paid'
+                     : (spec.status === 'npa' && idx === paidCount) ? 'overdue'
+                     : 'pending',
+              paidAt: idx < paidCount ? dayjs(disbursedAt).add(row.installment, 'month').toDate() : null,
+            })),
+          },
+        },
+      });
+    }
+  }
+
+  /* ── Credit profiles ────────────────────────────────────────────────── */
+  for (const member of team.slice(0, 10)) {
+    const score = randInt(540, 880);
+    const totalDebt = amt(0, 1500000);
+    const available = amt(100000, 3000000);
+    await prisma.creditProfile.create({
+      data: {
+        tenantId: primary.id, userId: member.id, userName: member.name, userEmail: member.email, creditScore: score, scoreModel: 'CIBIL',
+        totalDebt, availableCredit: available, utilizationPct: round2((totalDebt / (totalDebt + available)) * 100),
+        onTimePayments: randInt(10, 90), latePayments: randInt(0, 8), defaults: Math.random() > 0.85 ? 1 : 0,
+        riskCategory: score >= 750 ? 'low' : score >= 650 ? 'medium' : score >= 550 ? 'high' : 'very_high', lastUpdated: daysAgo(randInt(0, 40)),
+      },
+    });
+  }
+
+  /* ── KYC profiles + documents ───────────────────────────────────────── */
+  for (let i = 0; i < 22; i++) {
+    const member = pick(team);
+    const status = pick(['pending', 'verified', 'verified', 'rejected', 'review']);
+    const kyc = await prisma.kycProfile.create({
+      data: {
+        tenantId: primary.id, userId: member.id, userName: member.name,
+        panNumber: `${pick(['ABCDE', 'PQRSX', 'LMNOP'])}${randInt(1000, 9999)}${pick(['A', 'B', 'C'])}`,
+        aadhaarNumber: `XXXX-XXXX-${randInt(1000, 9999)}`, panVerified: status === 'verified', aadhaarVerified: status === 'verified',
+        faceMatchScore: round2(70 + Math.random() * 30), riskLevel: pick(['low', 'low', 'medium', 'high']), status,
+        rejectionReason: status === 'rejected' ? pick(['PAN name mismatch', 'Blurred document', 'Expired ID']) : null,
+        reviewedBy: status === 'pending' ? null : owner.id, reviewedAt: status === 'pending' ? null : daysAgo(randInt(0, 30)), createdAt: daysAgo(randInt(0, 120)),
+        documents: {
+          create: [
+            { docType: 'pan', fileUrl: 'https://files.local/pan.pdf', fileName: 'pan_card.pdf', fileSize: randInt(80000, 400000), mimeType: 'application/pdf', isVerified: status === 'verified' },
+            { docType: 'aadhaar', fileUrl: 'https://files.local/aadhaar.pdf', fileName: 'aadhaar.pdf', fileSize: randInt(80000, 400000), mimeType: 'application/pdf', isVerified: status === 'verified' },
+          ],
+        },
+      },
+    });
+    void kyc;
+  }
+
+  /* ── Fraud rules + alerts ───────────────────────────────────────────── */
+  const rules = await Promise.all([
+    prisma.fraudRule.create({ data: { tenantId: primary.id, name: 'High-velocity transactions', ruleType: 'velocity', action: 'flag', severity: 'high', description: 'More than 10 transactions in 5 minutes', triggerCount: randInt(2, 40) } }),
+    prisma.fraudRule.create({ data: { tenantId: primary.id, name: 'Large amount threshold', ruleType: 'amount_threshold', action: 'review', severity: 'medium', description: 'Single transaction above ₹5,00,000', triggerCount: randInt(2, 40) } }),
+    prisma.fraudRule.create({ data: { tenantId: primary.id, name: 'Geo anomaly', ruleType: 'geo_anomaly', action: 'block', severity: 'critical', description: 'Login from new country', triggerCount: randInt(0, 12) } }),
+    prisma.fraudRule.create({ data: { tenantId: primary.id, name: 'Blacklisted beneficiary', ruleType: 'blacklist', action: 'block', severity: 'critical', description: 'Payout to flagged account', triggerCount: randInt(0, 8) } }),
+    prisma.fraudRule.create({ data: { tenantId: primary.id, name: 'New device', ruleType: 'device', action: 'notify', severity: 'low', description: 'Transaction from unrecognised device', triggerCount: randInt(5, 60) } }),
+  ]);
+  const alerts: any[] = [];
+  for (let i = 0; i < 34; i++) {
+    const rule = pick(rules);
+    alerts.push({
+      tenantId: primary.id, userId: pick(team).id, ruleId: rule.id, alertType: rule.ruleType, severity: rule.severity,
+      description: `${rule.name} triggered for a ${pick(['payout', 'card payment', 'UPI transfer', 'wallet load'])}`,
+      riskScore: round2(30 + Math.random() * 70), status: pick(['open', 'open', 'investigating', 'resolved', 'dismissed']),
+      createdAt: daysAgo(randInt(0, 60)),
+    });
+  }
+  await prisma.fraudAlert.createMany({ data: alerts });
+
+  /* ── Audit logs ─────────────────────────────────────────────────────── */
+  const actions = ['create', 'update', 'delete', 'login', 'approve', 'reject', 'export'];
+  const resources = ['account', 'payment', 'loan', 'ledger', 'expense', 'kyc', 'user', 'settings'];
+  const logs: any[] = [];
+  for (let i = 0; i < 160; i++) {
+    const member = pick(team);
+    logs.push({
+      tenantId: primary.id, userId: member.id, action: pick(actions), resource: pick(resources), resourceId: id().slice(0, 10),
+      ipAddress: `${randInt(10, 220)}.${randInt(0, 255)}.${randInt(0, 255)}.${randInt(1, 254)}`,
+      userAgent: pick(['Chrome/124 · macOS', 'Safari/17 · iOS', 'Edge/124 · Windows', 'Firefox/126 · Linux']),
+      status: pick(['success', 'success', 'success', 'failure']), duration: randInt(12, 900), createdAt: daysAgo(randInt(0, 90)),
+    });
+  }
+  await prisma.auditLog.createMany({ data: logs });
+
+  /* ── Workflows ──────────────────────────────────────────────────────── */
+  const defs = await Promise.all([
+    prisma.workflowDefinition.create({ data: { tenantId: primary.id, name: 'Expense Approval', type: 'expense_approval' } }),
+    prisma.workflowDefinition.create({ data: { tenantId: primary.id, name: 'Loan Approval', type: 'loan_approval' } }),
+    prisma.workflowDefinition.create({ data: { tenantId: primary.id, name: 'Refund Approval', type: 'refund_approval' } }),
+    prisma.workflowDefinition.create({ data: { tenantId: primary.id, name: 'KYC Review', type: 'kyc_review' } }),
+  ]);
+  for (let i = 0; i < 26; i++) {
+    const def = pick(defs);
+    const totalSteps = randInt(2, 3);
+    const status = pick(['pending', 'in_progress', 'approved', 'approved', 'rejected']);
+    const current = status === 'approved' ? totalSteps : status === 'rejected' ? randInt(0, totalSteps - 1) : randInt(0, totalSteps - 1);
+    await prisma.workflowInstance.create({
+      data: {
+        tenantId: primary.id, definitionId: def.id, referenceId: id().slice(0, 10), referenceType: def.type.split('_')[0],
+        currentStep: current, totalSteps, status, priority: pick(['low', 'medium', 'high', 'urgent']),
+        assignedTo: pick(team).name, dueAt: daysAgo(randInt(-14, 7)), completedAt: ['approved', 'rejected'].includes(status) ? daysAgo(randInt(0, 20)) : null,
+        createdAt: daysAgo(randInt(0, 45)),
+        steps: {
+          create: Array.from({ length: totalSteps }, (_, s) => ({
+            stepIndex: s, stepName: pick(['Manager review', 'Finance sign-off', 'Compliance check', 'Director approval']),
+            assignedTo: pick(team).name,
+            status: s < current ? 'approved' : s === current && status === 'rejected' ? 'rejected' : 'pending',
+            comment: s < current ? pick(['Looks good', 'Approved within policy', 'Verified documents']) : null,
+            actionedAt: s < current ? daysAgo(randInt(0, 20)) : null, actionedBy: s < current ? pick(team).name : null,
+          })),
+        },
+      },
+    });
+  }
+
+  /* ── Documents ──────────────────────────────────────────────────────── */
+  const docs: any[] = [];
+  for (let i = 0; i < 30; i++) {
+    const member = pick(team);
+    docs.push({
+      tenantId: primary.id, userId: member.id, name: pick(['Q3 Financial Report', 'Vendor Agreement', 'Bank Statement', 'GST Return', 'Audit Report', 'Loan Sanction Letter']),
+      docCategory: pick(['contract', 'statement', 'report', 'kyc', 'tax', 'other']), fileUrl: 'https://files.local/document.pdf',
+      fileName: `doc_${id().slice(0, 8)}.pdf`, fileSize: randInt(50000, 5000000), mimeType: 'application/pdf',
+      isEncrypted: Math.random() > 0.5, accessLevel: pick(['private', 'team', 'tenant']), uploadedBy: member.name, createdAt: daysAgo(randInt(0, 150)),
+    });
+  }
+  await prisma.document.createMany({ data: docs });
+
+  /* ── Notifications ──────────────────────────────────────────────────── */
+  const notifs: any[] = [];
+  for (let i = 0; i < 40; i++) {
+    notifs.push({
+      tenantId: primary.id, userId: owner.id, channel: pick(['in_app', 'email', 'sms', 'push']), type: pick(['info', 'success', 'warning', 'alert', 'transaction']),
+      title: pick(['Payment received', 'Expense approved', 'Fraud alert', 'Reconciliation complete', 'KYC verified', 'Loan EMI due']),
+      body: pick(['A new payment of ₹12,500 was captured.', 'Your expense claim was approved.', 'A high-risk transaction was flagged.', 'Bank statement reconciled with 2 exceptions.', 'KYC verification completed.', 'EMI of ₹18,400 is due in 3 days.']),
+      status: pick(['sent', 'delivered', 'read', 'read']), sentAt: daysAgo(randInt(0, 30)), createdAt: daysAgo(randInt(0, 30)),
+    });
+  }
+  await prisma.notification.createMany({ data: notifs });
+
+  // a few sessions for the owner (Security page)
+  await prisma.userSession.createMany({
+    data: [
+      { userId: owner.id, ipAddress: '103.21.58.12', userAgent: 'Chrome/124 · macOS', expiresAt: dayjs().add(7, 'day').toDate(), createdAt: daysAgo(0) },
+      { userId: owner.id, ipAddress: '49.36.220.7', userAgent: 'Safari/17 · iPhone', expiresAt: dayjs().add(5, 'day').toDate(), createdAt: daysAgo(2) },
+      { userId: owner.id, ipAddress: '157.48.91.30', userAgent: 'Edge/124 · Windows', expiresAt: dayjs().add(3, 'day').toDate(), createdAt: daysAgo(6) },
+    ],
+  });
+
+  // historical sessions for the demo login accounts so their Security page shows
+  // multiple active devices (in addition to the session created at each login)
+  for (const email of ['admin@fintech.io', 'partner@fintech.io', 'user@fintech.io']) {
+    const u = team.find((t) => t.email === email);
+    if (!u) continue;
+    await prisma.userSession.createMany({
+      data: [
+        { userId: u.id, ipAddress: '103.21.58.12', userAgent: 'Chrome/124 · Windows', expiresAt: dayjs().add(6, 'day').toDate(), createdAt: daysAgo(1) },
+        { userId: u.id, ipAddress: '49.36.220.7', userAgent: 'Safari/17 · iPhone', expiresAt: dayjs().add(4, 'day').toDate(), createdAt: daysAgo(3) },
+      ],
+    });
+  }
+
+  /* ── Customers (M2) ─────────────────────────────────────────────────── */
+  const customerData = [
+    { fn: 'Rohan',    ln: 'Sharma',   email: 'rohan.sharma@northwind.io',    emp: 'salaried',      employer: 'Infosys Limited',              income: 1200000 },
+    { fn: 'Aisha',    ln: 'Khan',     email: 'aisha.khan@northwind.io',      emp: 'salaried',      employer: 'HDFC Bank',                    income: 850000  },
+    { fn: 'Vikram',   ln: 'Nair',     email: 'vikram.nair@northwind.io',     emp: 'self_employed', employer: 'VN Consultants',               income: 2000000 },
+    { fn: 'Divya',    ln: 'Patel',    email: 'divya.patel@northwind.io',     emp: 'business',      employer: 'Patel Textiles Pvt Ltd',       income: 3500000 },
+    { fn: 'Suresh',   ln: 'Reddy',    email: 'suresh.reddy@northwind.io',    emp: 'salaried',      employer: 'Wipro Technologies',           income: 950000  },
+    { fn: 'Kavita',   ln: 'Joshi',    email: 'kavita.joshi@northwind.io',    emp: 'retired',       employer: 'Former Civil Servant',         income: 480000  },
+    { fn: 'Arjun',    ln: 'Singh',    email: 'arjun.singh@northwind.io',     emp: 'salaried',      employer: 'Tata Consultancy Services',    income: 1600000 },
+    { fn: 'Meera',    ln: 'Iyer',     email: 'meera.iyer@northwind.io',      emp: 'salaried',      employer: 'ICICI Bank',                   income: 720000  },
+    { fn: 'Karan',    ln: 'Mehta',    email: 'karan.mehta@northwind.io',     emp: 'business',      employer: 'Mehta Exports Pvt Ltd',        income: 4200000 },
+    { fn: 'Pooja',    ln: 'Gupta',    email: 'pooja.gupta@northwind.io',     emp: 'salaried',      employer: 'Accenture India',              income: 1100000 },
+    { fn: 'Nikhil',   ln: 'Rao',      email: 'nikhil.rao@northwind.io',      emp: 'self_employed', employer: 'NR Tech Solutions',            income: 1800000 },
+    { fn: 'Priya',    ln: 'Kapoor',   email: 'priya.kapoor@northwind.io',    emp: 'salaried',      employer: 'Deloitte India',               income: 2200000 },
+    { fn: 'Sanjay',   ln: 'Verma',    email: 'sanjay.verma@northwind.io',    emp: 'business',      employer: 'Verma Industries Ltd',         income: 5000000 },
+    { fn: 'Anita',    ln: 'Desai',    email: 'anita.desai@northwind.io',     emp: 'salaried',      employer: 'HCL Technologies',             income: 980000  },
+    { fn: 'Rahul',    ln: 'Bose',     email: 'rahul.bose@northwind.io',      emp: 'salaried',      employer: 'Amazon India',                 income: 1900000 },
+    { fn: 'Sneha',    ln: 'Pillai',   email: 'sneha.pillai@northwind.io',    emp: 'salaried',      employer: 'Flipkart',                     income: 1400000 },
+    { fn: 'Amit',     ln: 'Saxena',   email: 'amit.saxena@northwind.io',     emp: 'self_employed', employer: 'Saxena & Associates',          income: 2600000 },
+    { fn: 'Lakshmi',  ln: 'Krishnan', email: 'lakshmi.krishnan@northwind.io',emp: 'retired',       employer: 'Former Bank Manager',          income: 560000  },
+    { fn: 'Rohit',    ln: 'Tiwari',   email: 'rohit.tiwari@northwind.io',    emp: 'salaried',      employer: 'Reliance Industries',          income: 1750000 },
+    { fn: 'Sunita',   ln: 'Agarwal',  email: 'sunita.agarwal@northwind.io',  emp: 'business',      employer: 'Agarwal Jewellers',            income: 3200000 },
+    { fn: 'Deepak',   ln: 'Chandra',  email: 'deepak.chandra@northwind.io',  emp: 'salaried',      employer: 'Cognizant Technology',         income: 1050000 },
+    { fn: 'Rekha',    ln: 'Pandey',   email: 'rekha.pandey@northwind.io',    emp: 'salaried',      employer: 'State Bank of India',          income: 780000  },
+    { fn: 'Manish',   ln: 'Kumar',    email: 'manish.kumar@northwind.io',    emp: 'business',      employer: 'Kumar Constructions Pvt Ltd',  income: 6000000 },
+    { fn: 'Geeta',    ln: 'Malhotra', email: 'geeta.malhotra@northwind.io',  emp: 'self_employed', employer: 'Malhotra Designs',             income: 1350000 },
+    { fn: 'Varun',    ln: 'Bhatt',    email: 'varun.bhatt@northwind.io',     emp: 'salaried',      employer: 'Google India',                 income: 3800000 },
+  ];
+  const cities  = ['Bengaluru', 'Mumbai', 'Hyderabad', 'Delhi', 'Pune', 'Chennai'];
+  const states  = ['Karnataka', 'Maharashtra', 'Telangana', 'Delhi', 'Tamil Nadu'];
+  const areas   = ['Indiranagar', 'Koramangala', 'HSR Layout', 'Whitefield', 'Bandra West', 'Andheri East'];
+  const panPfx  = ['AAPCS', 'BQPME', 'CRTXL', 'DRXYZ', 'ESTAB'];
+  const customers: { id: string; firstName: string; lastName: string }[] = [];
+  for (let i = 0; i < customerData.length; i++) {
+    const c = customerData[i];
+    const kycStatus = pick(['verified', 'verified', 'pending', 'rejected']);
+    const cust = await prisma.customer.create({
+      data: {
+        tenantId: primary.id,
+        customerId: `CIF${String(1001 + i).padStart(6, '0')}`,
+        firstName: c.fn, lastName: c.ln, email: c.email,
+        phone: `+91 ${randInt(70, 99)}${randInt(10000000, 99999999)}`,
+        dob: `${randInt(1965, 1998)}-${String(randInt(1, 12)).padStart(2, '0')}-${String(randInt(1, 28)).padStart(2, '0')}`,
+        gender: pick(['male', 'female']),
+        panNumber: `${pick(panPfx)}${randInt(1000, 9999)}${pick(['A', 'B', 'F'])}`,
+        aadhaarLast4: String(randInt(1000, 9999)),
+        employmentType: c.emp, employerName: c.employer, annualIncome: c.income,
+        address1: `${randInt(10, 500)}, ${pick(areas)} Main Road`,
+        city: pick(cities), state: pick(states), pincode: String(randInt(100001, 799999)),
+        status: pick(['active', 'active', 'active', 'inactive']),
+        kycStatus, riskCategory: pick(['low', 'low', 'medium', 'high']),
+        nomineeName: `${pick(FIRST)} ${pick(LAST)}`, nomineeRelation: pick(['spouse', 'parent', 'sibling', 'child']),
+        createdAt: daysAgo(randInt(10, 400)),
+      },
+    });
+    customers.push({ id: cust.id, firstName: cust.firstName, lastName: cust.lastName });
+  }
+
+  /* ── Beneficiaries (M7) ──────────────────────────────────────────────── */
+  const beneficiaryBanks = ['HDFC Bank', 'ICICI Bank', 'Axis Bank', 'SBI', 'Kotak Mahindra'];
+  const ifscPfx = ['HDFC', 'ICIC', 'UTIB', 'SBIN', 'KKBK'];
+  for (const cust of customers) {
+    const bCount = randInt(1, 3);
+    for (let b = 0; b < bCount; b++) {
+      const bankIdx = randInt(0, beneficiaryBanks.length - 1);
+      const status  = pick(['active', 'active', 'pending', 'blocked']);
+      await prisma.beneficiary.create({
+        data: {
+          tenantId: primary.id, customerId: cust.id,
+          name: `${pick(FIRST)} ${pick(LAST)}`, nickName: pick(['Family', 'Business', 'Vendor', undefined]),
+          bankName: beneficiaryBanks[bankIdx],
+          accountNumber: `${randInt(10000000, 99999999)}${randInt(100, 999)}`,
+          ifscCode: `${ifscPfx[bankIdx]}0${randInt(100000, 999999)}`,
+          accountType: pick(['savings', 'current', 'wallet']),
+          upiId: Math.random() > 0.5 ? `${cust.firstName.toLowerCase()}@upi` : undefined,
+          phone: `+91 ${randInt(70, 99)}${randInt(10000000, 99999999)}`,
+          relationship: pick(['family', 'business', 'other', 'self']),
+          status, approvedBy: status === 'active' ? owner.id : undefined,
+          approvedAt: status === 'active' ? daysAgo(randInt(1, 60)) : undefined,
+          createdAt: daysAgo(randInt(1, 200)),
+        },
+      });
+    }
+  }
+
+  /* ── Chart of Accounts (M18 Ledger) ─────────────────────────────────── */
+  const coa = [
+    // Assets
+    { code: '1001', name: 'Cash & Bank',         accountType: 'asset',     category: 'cash',      balance: 5820000,  isSystem: true,  description: 'Main cash and liquid bank balances' },
+    { code: '1002', name: 'Current Bank Account', accountType: 'asset',     category: 'bank',      balance: 12400000, isSystem: true,  description: 'Primary operating current account' },
+    { code: '1003', name: 'Savings Reserve',      accountType: 'asset',     category: 'bank',      balance: 8600000,  isSystem: false, description: 'SBI savings reserve account' },
+    { code: '1010', name: 'Accounts Receivable',  accountType: 'asset',     category: 'receivable',balance: 3240000,  isSystem: true,  description: 'Outstanding customer invoices and dues' },
+    { code: '1020', name: 'Loan Portfolio',        accountType: 'asset',     category: 'loan',      balance: 22800000, isSystem: true,  description: 'Total outstanding loan principal' },
+    { code: '1030', name: 'Prepaid Expenses',      accountType: 'asset',     category: 'receivable',balance: 480000,   isSystem: false, description: 'Prepaid insurance, rent, and subscriptions' },
+    // Liabilities
+    { code: '2001', name: 'Accounts Payable',     accountType: 'liability', category: 'payable',   balance: 1820000,  isSystem: true,  description: 'Amounts owed to vendors and suppliers' },
+    { code: '2002', name: 'Customer Deposits',    accountType: 'liability', category: 'payable',   balance: 9400000,  isSystem: true,  description: 'Savings deposits and wallet balances held' },
+    { code: '2003', name: 'Borrowings — NABARD',  accountType: 'liability', category: 'loan',      balance: 15000000, isSystem: false, description: 'Refinance borrowing from NABARD' },
+    { code: '2010', name: 'Tax Payable',           accountType: 'liability', category: 'payable',   balance: 640000,   isSystem: false, description: 'GST and income tax outstanding' },
+    // Equity
+    { code: '3001', name: 'Share Capital',         accountType: 'equity',   category: 'equity_ctrl',balance: 10000000, isSystem: true,  description: 'Paid-up equity share capital' },
+    { code: '3002', name: 'Retained Earnings',     accountType: 'equity',   category: 'equity_ctrl',balance: 16280000, isSystem: true,  description: 'Accumulated retained profits' },
+    // Revenue
+    { code: '4001', name: 'Interest Income',       accountType: 'revenue',  category: 'income',    balance: 4820000,  isSystem: true,  description: 'Interest earned on loans and investments' },
+    { code: '4002', name: 'Transaction Fee Income',accountType: 'revenue',  category: 'income',    balance: 1240000,  isSystem: true,  description: 'Processing fees on payments and transfers' },
+    { code: '4003', name: 'Commission Income',     accountType: 'revenue',  category: 'income',    balance: 680000,   isSystem: false, description: 'Referral and distribution commissions' },
+    { code: '4004', name: 'Penalty Income',        accountType: 'revenue',  category: 'income',    balance: 320000,   isSystem: false, description: 'Late payment and foreclosure penalties' },
+    // Expenses
+    { code: '5001', name: 'Employee Expenses',     accountType: 'expense',  category: 'expense_ctrl',balance: 2400000, isSystem: true,  description: 'Salaries, bonuses, and benefits' },
+    { code: '5002', name: 'Technology & IT',        accountType: 'expense',  category: 'expense_ctrl',balance: 680000,  isSystem: true,  description: 'Cloud, SaaS, hardware, and software' },
+    { code: '5003', name: 'Marketing & Acquisition',accountType: 'expense', category: 'expense_ctrl',balance: 420000,  isSystem: false, description: 'Digital ads, campaigns, and events' },
+    { code: '5004', name: 'Loan Loss Provision',   accountType: 'expense',  category: 'expense_ctrl',balance: 960000,  isSystem: true,  description: 'Provision for non-performing loans' },
+    { code: '5005', name: 'Operations Overhead',   accountType: 'expense',  category: 'expense_ctrl',balance: 380000,  isSystem: false, description: 'Rent, utilities, office, and admin' },
+  ];
+  const ledgerAccounts: any[] = [];
+  for (const a of coa) {
+    const acc = await prisma.ledgerAccount.create({ data: { ...a, tenantId: primary.id } });
+    ledgerAccounts.push(acc);
+  }
+  const getAcc = (code: string) => ledgerAccounts.find((a: any) => a.code === code)!;
+
+  /* ── Journal Entries (M18) ───────────────────────────────────────────── */
+  const journalTemplates = [
+    { desc: 'Loan disbursement — Personal Loan', refType: 'loan',    dr: '1010', cr: '1002', amount: 500000 },
+    { desc: 'EMI collection — Auto Loan',         refType: 'loan',    dr: '1002', cr: '4001', amount: 18500  },
+    { desc: 'Payment gateway settlement',          refType: 'payment', dr: '1001', cr: '1002', amount: 238400 },
+    { desc: 'Vendor payout — IT services',         refType: 'payment', dr: '2001', cr: '1002', amount: 85000  },
+    { desc: 'Salary batch — June 2025',            refType: 'expense', dr: '5001', cr: '1002', amount: 420000 },
+    { desc: 'Interest income accrual',             refType: 'manual',  dr: '1010', cr: '4001', amount: 32000  },
+    { desc: 'Loan loss provision — Q2',            refType: 'manual',  dr: '5004', cr: '2001', amount: 120000 },
+    { desc: 'Fee income — transaction charges',    refType: 'payment', dr: '1002', cr: '4002', amount: 14200  },
+    { desc: 'Customer deposit receipt',            refType: 'payment', dr: '1002', cr: '2002', amount: 250000 },
+    { desc: 'Marketing campaign spend',            refType: 'expense', dr: '5003', cr: '1002', amount: 75000  },
+    { desc: 'Penalty collection — late EMI',       refType: 'loan',    dr: '1002', cr: '4004', amount: 4500   },
+    { desc: 'NABARD refinance drawdown',           refType: 'manual',  dr: '1002', cr: '2003', amount: 2000000},
+    { desc: 'Cloud infra invoice — AWS',           refType: 'expense', dr: '5002', cr: '2001', amount: 48000  },
+    { desc: 'Commission payout — DSA',             refType: 'payment', dr: '4003', cr: '1002', amount: 22000  },
+    { desc: 'GST liability settlement',            refType: 'expense', dr: '2010', cr: '1002', amount: 95000  },
+    { desc: 'Prepaid insurance payment',           refType: 'expense', dr: '1030', cr: '1002', amount: 36000  },
+    { desc: 'Interest on borrowings — NABARD',     refType: 'manual',  dr: '5004', cr: '1002', amount: 62500  },
+    { desc: 'Refund of duplicate payment',         refType: 'payment', dr: '2002', cr: '1002', amount: 8400   },
+    { desc: 'Office rent — Bengaluru HQ',          refType: 'expense', dr: '5005', cr: '2001', amount: 120000 },
+    { desc: 'Annual compliance filing fee',        refType: 'manual',  dr: '5005', cr: '1002', amount: 15000  },
+  ];
+  for (let j = 0; j < journalTemplates.length; j++) {
+    const t   = journalTemplates[j];
+    const drA = getAcc(t.dr);
+    const crA = getAcc(t.cr);
+    const jNo = `JNL-${String(1001 + j).padStart(6, '0')}`;
+    const postedAt = daysAgo(randInt(0, 120));
+    await prisma.ledgerJournal.create({
+      data: {
+        tenantId: primary.id, journalNo: jNo, description: t.desc,
+        referenceType: t.refType, referenceId: `REF-${id().slice(0, 8).toUpperCase()}`,
+        status: 'posted', totalDebit: t.amount, totalCredit: t.amount,
+        createdBy: owner.id, postedAt,
+        entries: {
+          create: [
+            { tenantId: primary.id, accountId: drA.id, entryType: 'debit',  amount: t.amount, description: t.desc, createdAt: postedAt },
+            { tenantId: primary.id, accountId: crA.id, entryType: 'credit', amount: t.amount, description: t.desc, createdAt: postedAt },
+          ],
+        },
+      },
+    });
+  }
+
+  /* ── Reconciliation Batches (M19) ────────────────────────────────────── */
+  const recBatch1Items: any[] = [];
+  const recBatch2Items: any[] = [];
+  for (let i = 0; i < 20; i++) {
+    const isDebit = i % 2 === 0;
+    const amount  = amt(5000, 250000);
+    recBatch1Items.push({ itemType: isDebit ? 'debit' : 'credit', amount, description: pick(['NEFT inward', 'RTGS outward', 'UPI credit', 'Cheque clearance', 'Standing instruction']), status: i < 14 ? 'matched' : i < 18 ? 'unmatched' : 'exception', matchedAt: i < 14 ? daysAgo(randInt(1, 5)) : null, exception: i >= 18 ? 'Large transaction requires manual review' : null });
+    recBatch2Items.push({ itemType: isDebit ? 'debit' : 'credit', amount: amt(1000, 80000), description: pick(['Gateway settlement', 'Chargeback', 'Fee reversal', 'Payout']), status: 'unmatched' });
+  }
+  const b1 = await prisma.reconciliationBatch.create({
+    data: {
+      tenantId: primary.id, batchNo: 'REC-001001', batchType: 'bank',
+      period: '2025-05', status: 'completed',
+      totalItems: 20, matched: 14, unmatched: 4, exceptions: 2,
+      startedAt: daysAgo(10), completedAt: daysAgo(9),
+    },
+  });
+  await prisma.reconciliationItem.createMany({ data: recBatch1Items.map(i => ({ ...i, batchId: b1.id, tenantId: primary.id, createdAt: daysAgo(randInt(9, 15)) })) });
+  const b2 = await prisma.reconciliationBatch.create({
+    data: {
+      tenantId: primary.id, batchNo: 'REC-001002', batchType: 'payment_gateway',
+      period: '2025-06', status: 'pending',
+      totalItems: 20, matched: 0, unmatched: 20, exceptions: 0,
+    },
+  });
+  await prisma.reconciliationItem.createMany({ data: recBatch2Items.map(i => ({ ...i, batchId: b2.id, tenantId: primary.id, createdAt: daysAgo(randInt(0, 3)) })) });
+
+  /* ── Treasury Accounts (M20) ─────────────────────────────────────────── */
+  const treAccounts: { id: string; name: string }[] = [];
+  const treData = [
+    { name: 'Primary Operating Account', accountType: 'operating',  balance: 12400000, minBalance: 2000000, bankName: 'HDFC Bank',  accountNumber: '50200012345678' },
+    { name: 'Reserve Fund',              accountType: 'reserve',    balance: 8600000,  minBalance: 5000000, bankName: 'SBI',        accountNumber: '30291048301248' },
+    { name: 'Liquidity Pool',            accountType: 'liquidity',  balance: 6200000,  minBalance: 1000000, bankName: 'Axis Bank',  accountNumber: '91502934850234' },
+    { name: 'Investment Account',        accountType: 'investment', balance: 15000000, minBalance: 0,       bankName: 'ICICI Bank', accountNumber: '00791028374651' },
+  ];
+  for (const t of treData) {
+    const ta = await prisma.treasuryAccount.create({ data: { ...t, tenantId: primary.id, currency: 'INR', status: 'active' } });
+    treAccounts.push({ id: ta.id, name: ta.name });
+  }
+  const allocPurposes = ['liquidity', 'investment', 'reserve', 'payment', 'transfer'];
+  for (let i = 0; i < 12; i++) {
+    const from = treAccounts[Math.floor(i / 3) % treAccounts.length];
+    const to   = treAccounts[(Math.floor(i / 3) + 1) % treAccounts.length];
+    await prisma.treasuryAllocation.create({
+      data: {
+        tenantId: primary.id, fromAccountId: from.id, toAccountId: to.id, toAccountName: to.name,
+        amount: amt(100000, 2000000), purpose: pick(allocPurposes), status: pick(['completed', 'completed', 'pending']),
+        notes: pick(['Monthly reserve rebalancing', 'Liquidity buffer top-up', 'Investment window placement', 'End-of-day sweep', undefined]),
+        allocationDate: daysAgo(randInt(0, 90)), createdAt: daysAgo(randInt(0, 90)),
+      },
+    });
+  }
+
+  /* ── Cards (M21) ─────────────────────────────────────────────────────── */
+  const cardCards: { id: string }[] = [];
+  const networks  = ['visa', 'mastercard', 'rupay'];
+  const merchants = ['Amazon India', 'Swiggy', 'Zomato', 'Uber', 'Flipkart', 'BookMyShow', 'Myntra', 'BigBasket', 'MakeMyTrip', 'Netflix India', 'Reliance Digital'];
+  const cardSpecs = [
+    { cardType: 'virtual',  cardVariant: 'debit',   cardholderName: 'Rohan Sharma',   isInternational: false },
+    { cardType: 'physical', cardVariant: 'debit',   cardholderName: 'Aisha Khan',     isInternational: false },
+    { cardType: 'virtual',  cardVariant: 'credit',  cardholderName: 'Vikram Nair',    isInternational: true  },
+    { cardType: 'physical', cardVariant: 'debit',   cardholderName: 'Divya Patel',    isInternational: false },
+    { cardType: 'virtual',  cardVariant: 'debit',   cardholderName: 'Suresh Reddy',   isInternational: false },
+    { cardType: 'physical', cardVariant: 'credit',  cardholderName: 'Arjun Singh',    isInternational: true  },
+    { cardType: 'virtual',  cardVariant: 'prepaid', cardholderName: 'Meera Iyer',     isInternational: false },
+    { cardType: 'physical', cardVariant: 'debit',   cardholderName: 'Kavita Joshi',   isInternational: false },
+    { cardType: 'virtual',  cardVariant: 'debit',   cardholderName: 'Alex Carter',    isInternational: true  },
+    { cardType: 'physical', cardVariant: 'credit',  cardholderName: 'Emma Stone',     isInternational: true  },
+  ];
+  const expYear = new Date().getFullYear() + 3;
+  for (let i = 0; i < cardSpecs.length; i++) {
+    const spec   = cardSpecs[i];
+    const last4  = String(1000 + randInt(0, 8999));
+    const status = i === 3 ? 'blocked' : pick(['active', 'active', 'active', 'frozen']);
+    const card   = await prisma.card.create({
+      data: {
+        tenantId: primary.id, userId: pick(team).id,
+        ...spec, maskedNumber: `**** **** **** ${last4}`,
+        expiryMonth: randInt(1, 12), expiryYear: expYear + randInt(0, 2),
+        network: pick(networks), status,
+        dailyLimit:   spec.cardVariant === 'credit' ? 500000 : 100000,
+        monthlyLimit: spec.cardVariant === 'credit' ? 2000000 : 500000,
+        isContactless: true, isOnlineEnabled: true,
+        blockedAt:    status === 'blocked' ? daysAgo(randInt(1, 30)) : null,
+        blockedReason: status === 'blocked' ? 'Suspicious activity reported by cardholder' : null,
+        createdAt: daysAgo(randInt(30, 365)),
+      },
+    });
+    cardCards.push({ id: card.id });
+    const txCount = randInt(8, 18);
+    const cardTxns: any[] = [];
+    for (let t = 0; t < txCount; t++) {
+      const txStatus = pick(['approved', 'approved', 'approved', 'declined', 'reversed']);
+      cardTxns.push({
+        cardId: card.id, tenantId: primary.id,
+        merchant: pick(merchants), amount: amt(99, 25000), currency: 'INR',
+        status: txStatus, txnType: pick(['purchase', 'purchase', 'purchase', 'withdrawal', 'refund']),
+        mcc: pick(['5411', '5812', '4121', '5999', '7922', '5691']),
+        location: pick(['Bengaluru', 'Mumbai', 'Delhi', 'Online', 'Hyderabad']),
+        createdAt: daysAgo(randInt(0, 60)),
+      });
+    }
+    await prisma.cardTransaction.createMany({ data: cardTxns });
+  }
+
+  /* ── Credit Bureau Reports (M12) ─────────────────────────────────────── */
+  const bureaus = ['experian', 'equifax', 'crif', 'transunion'];
+  for (const cust of customers.slice(0, 6)) {
+    const bureauCount = randInt(1, 3);
+    for (let b = 0; b < bureauCount; b++) {
+      const baseScore = randInt(550, 880);
+      await prisma.creditBureauReport.create({
+        data: {
+          tenantId: primary.id, customerId: cust.id, bureau: bureaus[b % bureaus.length],
+          reportReference: `${bureaus[b % bureaus.length].toUpperCase()}-${Date.now() + b}`,
+          creditScore: baseScore,
+          paymentHistory:    round2(70 + Math.random() * 30),
+          creditUtilization: round2(Math.random() * 60),
+          accountAgeMonths:  randInt(12, 120),
+          recentInquiries:   randInt(0, 5),
+          derogatoryMarks:   Math.random() > 0.8 ? 1 : 0,
+          totalAccounts:     randInt(2, 10),
+          openAccounts:      randInt(1, 5),
+          totalBalance:      amt(10000, 500000),
+          totalLimit:        amt(100000, 2000000),
+          status: 'active',
+          pulledAt: daysAgo(randInt(0, 80)),
+          expiresAt: dayjs().add(90, 'day').toDate(),
+        },
+      });
+    }
+  }
+
+  /* ── AML / Sanction Entries (M15) ────────────────────────────────────── */
+  const sanctionData = [
+    { entityName: 'Khan Trading Associates',    entityType: 'entity',     listType: 'ofac',         country: 'AE', reason: 'Suspected money laundering network' },
+    { entityName: 'Blackwater Holdings Ltd',    entityType: 'entity',     listType: 'un',           country: 'US', reason: 'Arms trafficking and sanctions evasion' },
+    { entityName: 'Viktor Petrov',              entityType: 'individual', listType: 'eu',            country: 'RU', reason: 'Linked to sanctioned oligarch network' },
+    { entityName: 'Global Shell Corp Intl',     entityType: 'entity',     listType: 'ofac',         country: 'BZ', reason: 'Shell company used for illicit transfers' },
+    { entityName: 'Rajesh Malhotra',            entityType: 'individual', listType: 'pep',           country: 'IN', reason: 'Politically exposed person — former minister' },
+    { entityName: 'Sunrise Investments LLC',    entityType: 'entity',     listType: 'adverse_media',country: 'MU', reason: 'Adverse media — fraud investigation ongoing' },
+    { entityName: 'Deepak Arora Foundation',    entityType: 'entity',     listType: 'pep',           country: 'IN', reason: 'Front organization for PEP funds' },
+    { entityName: 'Caribbean Offshore Bank',    entityType: 'entity',     listType: 'un',           country: 'KY', reason: 'Correspondent banking violation' },
+    { entityName: 'Ahmad Al-Rashid',            entityType: 'individual', listType: 'ofac',         country: 'SA', reason: 'Suspected terrorist financing' },
+    { entityName: 'Eurasia Trade Consortium',   entityType: 'entity',     listType: 'eu',            country: 'BY', reason: 'Dual-use goods export violations' },
+  ];
+  const sanctionEntries: { id: string; entityName: string }[] = [];
+  for (const s of sanctionData) {
+    const entry = await prisma.sanctionEntry.create({ data: { ...s, tenantId: primary.id, isActive: true, addedAt: daysAgo(randInt(10, 500)) } });
+    sanctionEntries.push({ id: entry.id, entityName: entry.entityName });
+  }
+
+  /* ── AML Screenings ──────────────────────────────────────────────────── */
+  const screeningSubjects = [
+    { entityName: 'Apex Global Payments',    score: 12,  status: 'clear',  refType: 'payment'    },
+    { entityName: 'Khan Trading Associates', score: 95,  status: 'match',  refType: 'payment'    },
+    { entityName: 'Rajesh Malhotra',         score: 88,  status: 'match',  refType: 'customer'   },
+    { entityName: 'Lumina Exporters Pvt Ltd',score: 18,  status: 'clear',  refType: 'beneficiary'},
+    { entityName: 'Viktor Petrov Trading',   score: 72,  status: 'review', refType: 'payment'    },
+    { entityName: 'Global Shell Corp Intl',  score: 96,  status: 'match',  refType: 'payment'    },
+    { entityName: 'Sunrise Tech Solutions',  score: 22,  status: 'clear',  refType: 'beneficiary'},
+    { entityName: 'Deepak Arora',            score: 68,  status: 'review', refType: 'customer'   },
+    { entityName: 'Priya Sharma Exports',    score: 10,  status: 'clear',  refType: 'payment'    },
+    { entityName: 'Caribbean Offshore Bank', score: 92,  status: 'match',  refType: 'payment'    },
+    { entityName: 'Verdant Foods Trading',   score: 8,   status: 'clear',  refType: 'beneficiary'},
+    { entityName: 'Ahmad Al-Rashid Holdings',score: 90,  status: 'match',  refType: 'payment'    },
+  ];
+  for (const sc of screeningSubjects) {
+    const matchedEntry = sanctionEntries.find(e => sc.entityName.toLowerCase().includes(e.entityName.toLowerCase().split(' ')[0].toLowerCase()));
+    await prisma.sanctionScreening.create({
+      data: {
+        tenantId: primary.id, sanctionId: matchedEntry?.id ?? null,
+        entityName: sc.entityName, entityType: sc.refType,
+        referenceId: `REF-${id().slice(0, 8).toUpperCase()}`, referenceType: sc.refType,
+        matchScore: sc.score, status: sc.status,
+        resolvedBy: ['clear', 'match'].includes(sc.status) && Math.random() > 0.5 ? owner.id : undefined,
+        resolvedAt: ['clear', 'match'].includes(sc.status) && Math.random() > 0.5 ? daysAgo(randInt(0, 10)) : undefined,
+        notes: sc.status === 'match' ? 'High confidence match. Escalated to compliance officer.' : sc.status === 'review' ? 'Partial match. Manual review required.' : null,
+        createdAt: daysAgo(randInt(0, 60)),
+      },
+    });
+  }
+
+  /* ── Investments (M22) ──────────────────────────────────────────────── */
+  const fundNames = [
+    { name: 'Axis Bluechip Fund – Direct Growth',         type: 'mutual_fund', nav: 48.23, units: 412.5  },
+    { name: 'Mirae Asset Large Cap Fund – Direct Growth', type: 'mutual_fund', nav: 82.67, units: 183.2  },
+    { name: 'HDFC Mid-Cap Opportunities Fund',            type: 'mutual_fund', nav: 121.4, units: 97.8   },
+    { name: 'SBI Nifty 50 Index Fund',                    type: 'mutual_fund', nav: 205.3, units: 58.6   },
+    { name: 'ICICI Prudential Technology Fund',           type: 'mutual_fund', nav: 148.9, units: 134.0  },
+    { name: 'HDFC Fixed Deposit – 2Y',  type: 'fixed_deposit', interestRate: 7.25, duration: 24 },
+    { name: 'Axis Bank FD – 1Y',        type: 'fixed_deposit', interestRate: 7.0,  duration: 12 },
+    { name: 'ICICI Bank FD – 3Y',       type: 'fixed_deposit', interestRate: 7.5,  duration: 36 },
+    { name: 'Axis Bluechip Fund SIP',   type: 'sip', sipAmount: 5000,  duration: 24 },
+    { name: 'Mirae Emerging Bluechip SIP', type: 'sip', sipAmount: 3000, duration: 12 },
+  ];
+
+  for (let fi = 0; fi < fundNames.length; fi++) {
+    const f = fundNames[fi];
+    const cust = customers[fi % customers.length];
+    const startDate = daysAgo(randInt(30, 365));
+
+    let investedAmount: number;
+    let currentValue:   number;
+    let units = 0, nav = 0;
+
+    if (f.type === 'mutual_fund') {
+      units = (f as any).units;
+      nav   = (f as any).nav;
+      const initNav = nav * (1 - randInt(5, 20) / 100);
+      investedAmount = round2(units * initNav);
+      currentValue   = round2(units * nav);
+    } else if (f.type === 'fixed_deposit') {
+      investedAmount = amt(100000, 1000000);
+      const months   = (f as any).duration as number;
+      const rate     = ((f as any).interestRate as number) / 100;
+      currentValue   = round2(investedAmount * (1 + rate * months / 12));
+    } else {
+      // SIP
+      const sipAmt   = (f as any).sipAmount as number;
+      const paid     = randInt(2, (f as any).duration as number);
+      investedAmount = round2(sipAmt * paid);
+      currentValue   = round2(investedAmount * (1 + randInt(5, 15) / 100));
+    }
+
+    const returnAmount = round2(currentValue - investedAmount);
+    const returnRate   = round2(investedAmount > 0 ? (returnAmount / investedAmount) * 100 : 0);
+
+    const maturityDate = f.type !== 'mutual_fund'
+      ? dayjs(startDate).add((f as any).duration as number, 'month').toDate()
+      : undefined;
+
+    const inv = await prisma.investment.create({
+      data: {
+        tenantId: primary.id,
+        customerId: cust.id,
+        investmentType: f.type as any,
+        fundName: f.name,
+        folio: f.type === 'mutual_fund' ? `FOLIO${String(fi + 10001).padStart(6, '0')}` : undefined,
+        investedAmount, currentValue, returnAmount, returnRate,
+        units, nav,
+        interestRate:  (f as any).interestRate ?? null,
+        duration:      (f as any).duration ?? null,
+        sipAmount:     (f as any).sipAmount ?? null,
+        sipFrequency:  f.type === 'sip' ? 'monthly' : null,
+        status:        Math.random() > 0.15 ? 'active' : 'matured',
+        startDate,
+        maturityDate: maturityDate ?? null,
+        createdAt:    startDate,
+      },
+    });
+
+    // SIP installments
+    if (f.type === 'sip') {
+      const total = (f as any).duration as number;
+      const paid  = randInt(2, total);
+      for (let i = 0; i < total; i++) {
+        const d = dayjs(startDate).add(i, 'month').toDate();
+        await prisma.sipInstallment.create({
+          data: {
+            investmentId: inv.id,
+            installmentNo: i + 1,
+            amount: (f as any).sipAmount,
+            dueDate: d,
+            status:  i < paid ? 'paid' : 'pending',
+            paidAt:  i < paid ? d : null,
+            units:   i < paid ? round2(((f as any).sipAmount / nav) * (1 + Math.random() * 0.1)) : null,
+            nav:     i < paid ? round2(nav * (0.85 + Math.random() * 0.2)) : null,
+          },
+        });
+      }
+    }
+  }
+
+  const counts = {
+    tenants: 1 + otherTenants.length, users: await prisma.user.count(), accounts: accounts.length,
+    transactions: txn.length, payments: payments.length, loans: loanSpecs.length,
+    customers: customers.length, ledgerAccounts: coa.length, cards: cardCards.length,
+    sanctionEntries: sanctionData.length,
+    investments: fundNames.length,
+  };
+  console.log('✅  Seed complete:', counts);
+  console.log('🔑  Login: owner@northwind.io / Password123!');
+}
+
+main()
+  .catch((e) => { console.error(e); process.exit(1); })
+  .finally(async () => { await prisma.$disconnect(); });
