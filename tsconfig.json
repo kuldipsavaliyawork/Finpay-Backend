@@ -15,6 +15,6 @@
     "sourceMap": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "prisma/**/*.ts"],
-  "exclude": ["node_modules", "dist", "src/_legacy", "test", "prisma/*.bak"]
+  "include": ["src/**/*.ts", "prisma/seed.ts"],
+  "exclude": ["node_modules", "dist", "src/_legacy", "test", "prisma/backups", "prisma/**/*.bak", "prisma/**/*.backup*"]
 }

@@ -9,11 +9,11 @@
  * Singapore, Japan) counterparties with proper addresses, phones, and currencies.
  *
  * Login password for all users: Password123!
- *   owner@valorisfusion.io        → Owner
- *   admin@valorisfusion.io        → Administrator
- *   accountant@valorisfusion.io   → Accountant
- *   approver@valorisfusion.io     → Approver
- *   viewer@valorisfusion.io       → Viewer
+ *   owner@valorisfusion.com        → Owner
+ *   admin@valorisfusion.com        → Administrator
+ *   accountant@valorisfusion.com   → Accountant
+ *   approver@valorisfusion.com     → Approver
+ *   viewer@valorisfusion.com       → Viewer
  *
  * Run: npx prisma db seed   (or: npm run db:seed)
  *
@@ -158,7 +158,7 @@ async function main(): Promise<void> {
       name: 'Valoris Fusion',
       slug: 'valoris-fusion',
       legalName: 'Valoris Fusion Private Limited',
-      email: 'hello@valorisfusion.io',
+      email: 'hello@valorisfusion.com',
       phone: '+91 22 4000 1234',
       taxId: '27AABCV1234A1Z5',
       baseCurrency: 'INR',
@@ -263,11 +263,11 @@ async function main(): Promise<void> {
 
   // ── Users (all 5 roles) ───────────────────────────────────────────────────
   const demoUsers: Array<{ email: string; firstName: string; lastName: string; role: string }> = [
-    { email: 'owner@valorisfusion.io', firstName: 'Aarav', lastName: 'Mehta', role: ROLE_KEYS.OWNER },
-    { email: 'admin@valorisfusion.io', firstName: 'Priya', lastName: 'Nair', role: ROLE_KEYS.ADMIN },
-    { email: 'accountant@valorisfusion.io', firstName: 'Diya', lastName: 'Sharma', role: ROLE_KEYS.ACCOUNTANT },
-    { email: 'approver@valorisfusion.io', firstName: 'Rohan', lastName: 'Kapoor', role: ROLE_KEYS.APPROVER },
-    { email: 'viewer@valorisfusion.io', firstName: 'Kabir', lastName: 'Rao', role: ROLE_KEYS.VIEWER },
+    { email: 'owner@valorisfusion.com', firstName: 'Aarav', lastName: 'Mehta', role: ROLE_KEYS.OWNER },
+    { email: 'admin@valorisfusion.com', firstName: 'Priya', lastName: 'Nair', role: ROLE_KEYS.ADMIN },
+    { email: 'accountant@valorisfusion.com', firstName: 'Diya', lastName: 'Sharma', role: ROLE_KEYS.ACCOUNTANT },
+    { email: 'approver@valorisfusion.com', firstName: 'Rohan', lastName: 'Kapoor', role: ROLE_KEYS.APPROVER },
+    { email: 'viewer@valorisfusion.com', firstName: 'Kabir', lastName: 'Rao', role: ROLE_KEYS.VIEWER },
   ];
 
   const userByEmail = new Map<string, string>();
@@ -291,11 +291,11 @@ async function main(): Promise<void> {
       data: { membershipId: membership.id, roleId: roleIdByKey.get(u.role)! },
     });
   }
-  const ownerId = userByEmail.get('owner@valorisfusion.io')!;
-  const adminId = userByEmail.get('admin@valorisfusion.io')!;
-  const accountantId = userByEmail.get('accountant@valorisfusion.io')!;
-  const approverId = userByEmail.get('approver@valorisfusion.io')!;
-  const viewerId = userByEmail.get('viewer@valorisfusion.io')!;
+  const ownerId = userByEmail.get('owner@valorisfusion.com')!;
+  const adminId = userByEmail.get('admin@valorisfusion.com')!;
+  const accountantId = userByEmail.get('accountant@valorisfusion.com')!;
+  const approverId = userByEmail.get('approver@valorisfusion.com')!;
+  const viewerId = userByEmail.get('viewer@valorisfusion.com')!;
 
   await prisma.department.update({ where: { id: financeDept.id }, data: { managerId: ownerId } });
   await prisma.department.update({ where: { id: salesDept.id }, data: { managerId: adminId } });
@@ -2069,11 +2069,11 @@ async function main(): Promise<void> {
   console.log('    Tenant     Valoris Fusion (valoris-fusion)');
   console.log('    Password   Password123!');
   console.log('    Users');
-  console.log('      owner@valorisfusion.io        Owner');
-  console.log('      admin@valorisfusion.io        Administrator');
-  console.log('      accountant@valorisfusion.io   Accountant');
-  console.log('      approver@valorisfusion.io     Approver');
-  console.log('      viewer@valorisfusion.io       Viewer');
+  console.log('      owner@valorisfusion.com        Owner');
+  console.log('      admin@valorisfusion.com        Administrator');
+  console.log('      accountant@valorisfusion.com   Accountant');
+  console.log('      approver@valorisfusion.com     Approver');
+  console.log('      viewer@valorisfusion.com       Viewer');
   console.log('');
   console.log(`    Data       ${customers.length} customers · ${vendors.length} vendors (Indian + foreign)`);
   console.log(`               ${invStatuses.length} invoices · ${billStatuses.length} bills · ${expStatuses.length} expenses`);

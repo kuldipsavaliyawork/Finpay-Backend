@@ -115,7 +115,7 @@ export const config: AppConfig = {
   },
   appUrl: optional('APP_URL', 'http://localhost:5173'),
   mail: {
-    from: optional('MAIL_FROM', 'FinPay <noreply@finpay.local>'),
+    from: optional('MAIL_FROM', 'Valoris Fusion <noreply@valorisfusion.com>'),
     smtpHost: process.env.SMTP_HOST?.trim() || undefined,
     smtpPort: toInt(optional('SMTP_PORT', '587'), 'SMTP_PORT'),
     smtpSecure: optional('SMTP_SECURE', 'false') === 'true',

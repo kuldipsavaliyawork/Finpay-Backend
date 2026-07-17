@@ -9,7 +9,7 @@ export const app = createApp();
 export const api = () => request(app);
 
 /** Demo credentials from prisma/seed.ts. */
-export const OWNER = { email: 'owner@valorisfusion.io', password: 'Password123!' };
-export const ADMIN = { email: 'admin@valorisfusion.io', password: 'Password123!' };
+export const OWNER = { email: 'owner@valorisfusion.com', password: 'Password123!' };
+export const ADMIN = { email: 'admin@valorisfusion.com', password: 'Password123!' };
 
 export { prisma };

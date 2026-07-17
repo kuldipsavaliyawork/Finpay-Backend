@@ -38,17 +38,17 @@ All demo users share the password **`Password123!`** in tenant
 
 | Email                          | Role           | Access                         |
 |--------------------------------|----------------|--------------------------------|
-| `owner@valorisfusion.io`       | Owner          | Full access (`*`)              |
-| `admin@valorisfusion.io`       | Administrator  | Full administrative access     |
-| `accountant@valorisfusion.io`  | Accountant     | Day-to-day accounting          |
-| `approver@valorisfusion.io`    | Approver       | Review & approve documents     |
-| `viewer@valorisfusion.io`      | Viewer         | Read-only                      |
+| `owner@valorisfusion.com`       | Owner          | Full access (`*`)              |
+| `admin@valorisfusion.com`       | Administrator  | Full administrative access     |
+| `accountant@valorisfusion.com`  | Accountant     | Day-to-day accounting          |
+| `approver@valorisfusion.com`    | Approver       | Review & approve documents     |
+| `viewer@valorisfusion.com`      | Viewer         | Read-only                      |
 
 ```bash
 # Log in and call an authenticated endpoint
 curl -sX POST localhost:3030/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"owner@valorisfusion.io","password":"Password123!"}'
+  -d '{"email":"owner@valorisfusion.com","password":"Password123!"}'
 ```
 
 ## API surface (`/api/v1`)

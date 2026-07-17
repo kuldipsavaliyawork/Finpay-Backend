@@ -1,0 +1,23 @@
+﻿
+> fintech-backend@1.0.0 build
+> tsc -p tsconfig.json
+
+prisma/backups/seed.backup-20260717.ts(18,30): error TS2307: Cannot find module '../src/common/security/password' or its corresponding type declarations.
+prisma/backups/seed.backup-20260717.ts(24,8): error TS2307: Cannot find module '../src/config/constants' or its corresponding type declarations.
+prisma/backups/seed.backup-20260717.ts(142,28): error TS7006: Parameter 'p' implicitly has an 'any' type.
+prisma/backups/seed.backup-20260717.ts(234,21): error TS7006: Parameter 'k' implicitly has an 'any' type.
+prisma/backups/seed.backup-20260717.ts(234,53): error TS7006: Parameter 'id' implicitly has an 'any' type.
+prisma/backups/seed.backup-20260717.ts(237,28): error TS7006: Parameter 'permissionId' implicitly has an 'any' type.
+npm : npm warn Unknown env config "devdir". This will stop working in the next major version of npm. See `npm help 
+npmrc` for supported config options.
+At C:\Users\Kuldip Savaliya\AppData\Local\Temp\ps-script-c045f6b0-5693-4555-b617-0782eb4bf847.ps1:7 char:68
++ ... y-Backend"; npm run build > build-stdout.txt 2> build-stderr.txt; ech ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm warn Unknow...config options.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm notice
+npm notice New major version of npm available! 11.16.0 -> 12.0.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.1
+npm notice To update run: npm install -g npm@12.0.1
+npm notice
